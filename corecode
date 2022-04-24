@@ -14,33 +14,34 @@ import logging
 import threading
 import time
 import concurrent.futures
-__
+
+#__
 
 airport=pd.read_csv('AComp_Passenger_data_no_error(1).csv')
 latlong=pd.read_csv('Top30_airports_LatLong(1).csv')
-__
+#__
 
 #Name airport columns
 airport.columns=["Passenger_ID", "Flight_ID", "From_Airport_Code", "To_Airport_Code","Departure_Time", "Duration"]
 
-__
+#__
 
 #Basic overview of latitude and logitude dataset
 print(latlong)
 
-__
+#__
 
 ###Column of all the airport codes
 airport1=airport.loc[:,'From_Airport_Code']
 #print(airport1)
 
-__
+#__
 
 ###Column of all the airport codes
 airport1=airport.loc[:,'From_Airport_Code']
 #print(airport1)
 
-__
+#__
 
 airportkeys = list()
 dictionarylist = []
@@ -59,6 +60,35 @@ def main():
   #reducer()
 
 
+
+#Reduce segment
+def reducer(separator=','):
+  #sorter segment, sorts dictionaries alphabetically
+  dictionary= sorted(dictionarylist, key= lambda d : list(d.keys()))
+  #dictionary=dictionarylist.sort(key=lambda x: x[1], reverse=False)
+  for key, value in dictionary[0].items():
+    current_airport,current_count = [str(key),0] 
+
+  #current_airport = dictionarylist[0].keys()
+  #current_count = dictionarylist[0].values()
+  for dictionary in dictionary:
+    for key, value in dictionary.items():
+      if key ==current_airport:
+        current_count= current_count+value
+      else:
+        airportkey= {current_airport: current_count}
+        airportlist.append(dict(airportkey))
+        current_airport = key
+        current_count = value
+
+def main():
+  #map + reduce segments
+  map()
+  
+  reducer()
+
+
 if __name__ == "__main__":
   main()
-print(dictionarylist)
+print(dictionary)
+print(airportlist)
