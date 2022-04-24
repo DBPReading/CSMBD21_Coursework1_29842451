@@ -43,6 +43,8 @@ airport1=airport.loc[:,'From_Airport_Code']
 
 #__
 
+#Output: <FAA Code, x> where x is count
+#Need to change this so FAA code is replace with airport code
 airportkeys = list()
 dictionarylist = []
 
