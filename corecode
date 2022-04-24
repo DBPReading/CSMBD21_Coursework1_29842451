@@ -40,3 +40,25 @@ __
 airport1=airport.loc[:,'From_Airport_Code']
 #print(airport1)
 
+__
+
+airportkeys = list()
+dictionarylist = []
+
+
+def map(separator=','):
+  #Map Segment
+  data = read_input(airport1)
+  for words in data:
+    dictkey= {word: 1 for word in words}
+    dictionarylist.append(dict(dictkey))
+  
+def main():
+  #map + reduce segments
+  map()
+  #reducer()
+
+
+if __name__ == "__main__":
+  main()
+print(dictionarylist)
