@@ -14,9 +14,29 @@ import logging
 import threading
 import time
 import concurrent.futures
+__
 
 airport=pd.read_csv('AComp_Passenger_data_no_error(1).csv')
 latlong=pd.read_csv('Top30_airports_LatLong(1).csv')
+__
 
 #Name airport columns
 airport.columns=["Passenger_ID", "Flight_ID", "From_Airport_Code", "To_Airport_Code","Departure_Time", "Duration"]
+
+__
+
+#Basic overview of latitude and logitude dataset
+print(latlong)
+
+__
+
+###Column of all the airport codes
+airport1=airport.loc[:,'From_Airport_Code']
+#print(airport1)
+
+__
+
+###Column of all the airport codes
+airport1=airport.loc[:,'From_Airport_Code']
+#print(airport1)
+
