@@ -93,10 +93,12 @@ def main():
 
 if __name__ == "__main__":
   main()
-print(dictionarylist)
+#print(dictionarylist)
 
 #print(dictionary)
 print(airportlist)
+
+#Output: [{'AMSTERDAM': 15}, {'ATLANTA': 36}, {'BANGKOK': 17}, {'BEIJING': 13}, {'CHARLOTTE': 21}, {'CHICAGO': 33}, {'DALLAS/FORT WORTH': 11}, {'DENVER': 46}, {'GUANGZHOU': 37}, {'HOUSTON': 37}, {'JAKARTA': 27}, {'KUALA LUMPUR': 33}, {'LAS VEGAS': 17}, {'LONDON': 25}, {'MADRID': 13}, {'MIAMI': 11}, {'MUNICH': 14}, {'NEW YORK': 25}, {'PARIS': 21}, {'ROME': 15}, {'SHANGHAI': 20}]
 
 #_________________
 ###Task 2: Determine the passenger having had the highest number of flights.
