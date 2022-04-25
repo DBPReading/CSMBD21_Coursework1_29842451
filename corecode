@@ -42,13 +42,15 @@ airport1=airport.loc[:,'From_Airport_Code']
 #print(airport1)
 
 #__
+#Task 1: Determine the total number of flights from each airport
+
 
 #Output: <FAA Code, x> where x is count
 #Need to change this so FAA code is replace with airport code
 airportkeys = list()
 dictionarylist = []
 
-
+#Map Output: <FAA Code,1> 
 def map(separator=','):
   #Map Segment
   data = read_input(airport1)
@@ -62,7 +64,7 @@ def main():
   #reducer()
 
 
-
+#Reduce Output: <FAA Code,x> where x is count
 #Reduce segment
 def reducer(separator=','):
   #sorter segment, sorts dictionaries alphabetically
@@ -94,3 +96,62 @@ if __name__ == "__main__":
   main()
 print(dictionary)
 print(airportlist)
+
+#_________________
+###Task 2: Determine the passenger having had the highest number of flights.
+
+passengerlist = []
+dictionarylist2 = []
+#Output: <Passenger code, x> where x is count, then work out max value
+
+#Map Output: <Passenger code,1> 
+def map():
+  #Map Segment
+  passdata = read_input(passenger1)
+  for words in passdata:
+    dictkey2= {word: 1 for word in words}
+    dictionarylist2.append(dict(dictkey2))
+  
+#Reduce segment
+#Reduce Output: <Passenger code,x> 
+def reducer2():
+  #sorter segment, sorts dictionaries alphanumerically pre reduction
+  dictionary2= sorted(dictionarylist2, key= lambda d : list(d.keys()))
+
+  #reduce segment
+  for key, value in dictionary2[0].items():
+    current_passenger,current_count = [str(key),0] 
+  for diction2 in dictionary2:
+    for key, value in diction2.items():
+      if key ==current_passenger:
+        current_count= current_count+value
+      else:
+        passengerkey= {current_passenger: current_count}
+        passengerlist.append(dict(passengerkey))
+        current_passenger = key
+        current_count = value
+
+def main():
+  #map + reduce segments
+  map2()
+  reducer2()
+  #mostflightpassenger= sorted(passengerlist, key= lambda value: int(value)) )
+  mostflightpassenger = max(passengerlist, key=lambda d:list(d.values()))
+  print(mostflightpassenger)
+
+
+if __name__ == "__main__":
+  main()
+#print(dictionary2)
+print(passengerlist)
+print(mostflightpassenger)
+
+
+
+
+# output:[{'BWI0520BG6': 23}, {'CDC0302NN5': 12}, {'CKZ3132BR4': 19}, {'CXN7304ER2': 17}, {'CYJ0225CH1': 11}, {'DAZ3029XA0': 23}, {'EDV2089LK5': 13}, {'EZC9678QI6': 21}, {'HCA3158QA6': 21}, {'HGO4350KK1': 18}, {'IEG9308EA5': 10}, {'JBE2302VO4': 16}, {'JJM4724RF7': 21}, {'KKP5277HZ7': 11}, {'LLZ3798PE3': 16}, {'MXU9187YC7': 14}, {'ONL0812DH1': 12}, {'PAJ3974RK1': 10}, {'PIT2755XC1': 8}, {'POP2875LH3': 19}, {'PUD8209OG3': 23}, {'SJD8775RZ4': 16}, {'SPR4484HA6': 23}, {'UES9151GS5': 25}, {'UMH6360YP0': 1}, {'VZY2993ME1': 16}, {'WBE6935NU3': 19}, {'WTC9125IE5': 14}, {'WYU2010YH8': 19}, {'XFG5747ZT9': 13}]
+# {'UES9151GS5': 25}
+
+
+
+
