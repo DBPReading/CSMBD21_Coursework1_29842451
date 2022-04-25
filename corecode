@@ -17,9 +17,11 @@ import concurrent.futures
 
 #__
 
-airport=pd.read_csv('AComp_Passenger_data_no_error(1).csv')
-latlong=pd.read_csv('Top30_airports_LatLong(1).csv')
-#__
+columns1=["Passenger_ID", "Flight_ID", "From_Airport_Code", "To_Airport_Code","Departure_Time", "Duration"]
+columns2=["Airport","From_Airport_Code", "Latitude","Longitude"]
+
+airport=pd.read_csv('AComp_Passenger_data_no_error(1).csv',names=columns1)
+latlong=pd.read_csv('Top30_airports_LatLong(1).csv',names=columns2)#__
 
 #Name airport columns
 airport.columns=["Passenger_ID", "Flight_ID", "From_Airport_Code", "To_Airport_Code","Departure_Time", "Duration"]
@@ -31,52 +33,49 @@ print(latlong)
 
 #__
 
-###Column of all the airport codes
 airport1=airport.loc[:,'From_Airport_Code']
-#print(airport1)
+latlong1=latlong[['Airport','From_Airport_Code']].set_index('Airport')
 
-#__
-
-###Column of all the airport codes
-airport1=airport.loc[:,'From_Airport_Code']
+passenger1=airport.loc[:,'Passenger_ID']
+#
 #print(airport1)
+#print(latlong1)
 
 #__
 #Task 1: Determine the total number of flights from each airport
 
-
-#Output: <FAA Code, x> where x is count
-#Need to change this so FAA code is replace with airport code
-airportkeys = list()
+airportlist = []
 dictionarylist = []
 
-#Map Output: <FAA Code,1> 
-def map(separator=','):
+def read_input(file):
+  for line in file:
+  # Split the line into words
+    yield line.split()
+
+def map1():
+  #Output: <Airport, FAA Code> -> <FAA Code, Airport> 
+  latlong_dict = latlong1.to_dict(orient="dict")['From_Airport_Code']
+  inv_latlong_dict = {value: key for key, value in latlong_dict.items()}
+
+  #Output: <FAA Code, x> -> <Airport, x>  where x is count
   #Map Segment
   data = read_input(airport1)
   for words in data:
-    dictkey= {word: 1 for word in words}
-    dictionarylist.append(dict(dictkey))
-  
-def main():
-  #map + reduce segments
-  map()
-  #reducer()
+    for word in words:
+      airportcode= inv_latlong_dict[word] 
+      dictkey= {airportcode: 1}
+      dictionarylist.append(dict(dictkey))
 
-
-#Reduce Output: <FAA Code,x> where x is count
 #Reduce segment
-def reducer(separator=','):
-  #sorter segment, sorts dictionaries alphabetically
+def reducer1():
+  #sorter segment, sorts dictionaries alphanumerically pre reduction
   dictionary= sorted(dictionarylist, key= lambda d : list(d.keys()))
-  #dictionary=dictionarylist.sort(key=lambda x: x[1], reverse=False)
+
   for key, value in dictionary[0].items():
     current_airport,current_count = [str(key),0] 
 
-  #current_airport = dictionarylist[0].keys()
-  #current_count = dictionarylist[0].values()
-  for dictionary in dictionary:
-    for key, value in dictionary.items():
+  for diction in dictionary:
+    for key, value in diction.items():
       if key ==current_airport:
         current_count= current_count+value
       else:
@@ -85,16 +84,18 @@ def reducer(separator=','):
         current_airport = key
         current_count = value
 
+
 def main():
   #map + reduce segments
-  map()
-  
-  reducer()
+  map1()
+  reducer1()
 
 
 if __name__ == "__main__":
   main()
-print(dictionary)
+print(dictionarylist)
+
+#print(dictionary)
 print(airportlist)
 
 #_________________
