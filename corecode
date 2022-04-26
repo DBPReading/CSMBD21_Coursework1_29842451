@@ -1,30 +1,30 @@
 #visualisation and processing modules
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import seaborn as sns
 import numpy as np
 import pandas as pd
-import plotly as plt
 import requests
-import sklearn
+from sklearn.model_selection import KFold
 import datetime
 
 #threading modules
 import logging
 import threading
 import time
-import concurrent.futures
+from threading import Thread
+from time import sleep, perf_counter
 
 #__
 
+#Prepare column names
 columns1=["Passenger_ID", "Flight_ID", "From_Airport_Code", "To_Airport_Code","Departure_Time", "Duration"]
 columns2=["Airport","From_Airport_Code", "Latitude","Longitude"]
-
+#Read in both data sets
 airport=pd.read_csv('AComp_Passenger_data_no_error(1).csv',names=columns1)
-latlong=pd.read_csv('Top30_airports_LatLong(1).csv',names=columns2)#__
+latlong=pd.read_csv('Top30_airports_LatLong(1).csv',names=columns2)
 
-#Name airport columns
-airport.columns=["Passenger_ID", "Flight_ID", "From_Airport_Code", "To_Airport_Code","Departure_Time", "Duration"]
+#__
+
+#Basic overview of airport dataset
+print(airport) 
 
 #__
 
@@ -44,26 +44,75 @@ passenger1=airport.loc[:,'Passenger_ID']
 #__
 #Task 1: Determine the total number of flights from each airport
 
-airportlist = []
+#Initialise lists
+targetlist = []
 dictionarylist = []
 
-def read_input(file):
-  for line in file:
+#Function for creating a list of indices for the partitioned sets
+def divider(entryfile,split): 
+  filevalue, splitvalue = divmod(entryfile.size, split)
+  return (entryfile[i*filevalue+min(i, splitvalue):(i+1)*filevalue+min(i+1, splitvalue)] for i in range(split))
+
+#Function for partitioning the sets in preperation for threading
+def partitioner1(entryfile,split,i):
+  if entryfile.size % split == 0:
+      divider(entryfile,split)
+      listing= list(divider(airport1,split))
+      
+      index=listing[i]
+      
+      return index
+  else:
+    print(str(entryfile.size) + ' cannot be subdivided by '+ str(split))
+    raise ValueError
+
+
+def read_input(entryfile):
+  for line in entryfile:
   # Split the line into words
     yield line.split()
 
-def map1():
-  #Output: <Airport, FAA Code> -> <FAA Code, Airport> 
-  latlong_dict = latlong1.to_dict(orient="dict")['From_Airport_Code']
-  inv_latlong_dict = {value: key for key, value in latlong_dict.items()}
+def inputmerge(mergefile,mergecode):
+  #Input Segment
+  file_dict = mergefile.to_dict(orient="dict")[mergecode]
+  inv_file_dict = {value: key for key, value in file_dict.items()}
+  #Output: <Airport, FAA Code> -> <FAA Code, Airport>
+  return inv_file_dict
 
-  #Output: <FAA Code, x> -> <Airport, x>  where x is count
+def threadsection1(mergefile,countfile,inversedict,split):
+  start_time = perf_counter()
+  threads=[]
+  for i in range(split):
+    print("Activate thread "+ str(i+1))
+    parting=partitioner1(countfile,split,i )
+    thread = Thread(target=map1(mergefile,parting,inversedict))
+    # start the threads
+    thread.start()
+    threads.append(thread)
+    # wait for the threads to complete
+  for i in range(len(threads)):
+    thread=threads[i]
+    thread.join()
+    print("End thread "+ str(i+1))
+  end_time = perf_counter()
+  print(f'It took {end_time- start_time: 0.2f} second(s) to complete.')
+
+
+
+def map1(mergefile,countfile,passing):
   #Map Segment
-  data = read_input(airport1)
+  #Output: <FAA Code, x> -> <Airport, x>  where x is count
+  data = read_input(countfile)
   for words in data:
     for word in words:
-      airportcode= inv_latlong_dict[word] 
-      dictkey= {airportcode: 1}
+      #check to ensure mergefile is present, otherwise ignore
+      try:
+        targetcode= passing[word] 
+      except NameError:
+        targetcode= word 
+        pass 
+        
+      dictkey= {targetcode: 1}
       dictionarylist.append(dict(dictkey))
 
 #Reduce segment
@@ -72,51 +121,66 @@ def reducer1():
   dictionary= sorted(dictionarylist, key= lambda d : list(d.keys()))
 
   for key, value in dictionary[0].items():
-    current_airport,current_count = [str(key),0] 
+    current_target,current_count = [str(key),0] 
 
   for diction in dictionary:
     for key, value in diction.items():
-      if key ==current_airport:
+      if key ==current_target:
         current_count= current_count+value
       else:
-        airportkey= {current_airport: current_count}
-        airportlist.append(dict(airportkey))
-        current_airport = key
+        targetkey= {current_target: current_count}
+        targetlist.append(dict(targetkey))
+        current_target = key
         current_count = value
 
 
-def main():
+def main(mergefile,countfile,mergecode,split):
   #map + reduce segments
-  map1()
+  try:
+    inversedict=inputmerge(mergefile,mergecode)
+  except NameError:
+    pass
+  threadsection1(mergefile,countfile,inversedict,split)
   reducer1()
 
-
 if __name__ == "__main__":
-  main()
-#print(dictionarylist)
+  main(latlong1,airport1,'From_Airport_Code',4)
+print(dictionarylist)
 
 #print(dictionary)
-print(airportlist)
+print(targetlist)
 
-#Output: [{'AMSTERDAM': 15}, {'ATLANTA': 36}, {'BANGKOK': 17}, {'BEIJING': 13}, {'CHARLOTTE': 21}, {'CHICAGO': 33}, {'DALLAS/FORT WORTH': 11}, {'DENVER': 46}, {'GUANGZHOU': 37}, {'HOUSTON': 37}, {'JAKARTA': 27}, {'KUALA LUMPUR': 33}, {'LAS VEGAS': 17}, {'LONDON': 25}, {'MADRID': 13}, {'MIAMI': 11}, {'MUNICH': 14}, {'NEW YORK': 25}, {'PARIS': 21}, {'ROME': 15}, {'SHANGHAI': 20}]
+
+# Output:
+#Activate thread 1
+#Activate thread 2
+#Activate thread 3
+#Activate thread 4
+#End thread 1
+#End thread 2
+#End thread 3
+#End thread 4
+#It took  0.01 second(s) to complete.
+#[{'DENVER': 1}, {'NEW YORK': 1}, {'CHICAGO': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'KUALA LUMPUR': 1}, {'MADRID': 1}, {'DENVER': 1}, {'LONDON': 1}, {'NEW YORK': 1}, {'JAKARTA': 1}, {'MUNICH': 1}, {'AMSTERDAM': 1}, {'DALLAS/FORT WORTH': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'NEW YORK': 1}, {'MUNICH': 1}, {'KUALA LUMPUR': 1}, {'MIAMI': 1}, {'PARIS': 1}, {'GUANGZHOU': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'MUNICH': 1}, {'GUANGZHOU': 1}, {'CHICAGO': 1}, {'MIAMI': 1}, {'LAS VEGAS': 1}, {'PARIS': 1}, {'CHICAGO': 1}, {'CHARLOTTE': 1}, {'JAKARTA': 1}, {'LAS VEGAS': 1}, {'ATLANTA': 1}, {'DENVER': 1}, {'PARIS': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'KUALA LUMPUR': 1}, {'CHARLOTTE': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'DENVER': 1}, {'JAKARTA': 1}, {'LONDON': 1}, {'SHANGHAI': 1}, {'ROME': 1}, {'KUALA LUMPUR': 1}, {'HOUSTON': 1}, {'JAKARTA': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'NEW YORK': 1}, {'SHANGHAI': 1}, {'DENVER': 1}, {'MADRID': 1}, {'PARIS': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'BANGKOK': 1}, {'BEIJING': 1}, {'DENVER': 1}, {'BANGKOK': 1}, {'TOKYO': 1}, {'JAKARTA': 1}, {'PARIS': 1}, {'BANGKOK': 1}, {'PARIS': 1}, {'GUANGZHOU': 1}, {'SHANGHAI': 1}, {'CHARLOTTE': 1}, {'CHICAGO': 1}, {'MIAMI': 1}, {'CHARLOTTE': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'JAKARTA': 1}, {'NEW YORK': 1}, {'CHARLOTTE': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'HOUSTON': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'JAKARTA': 1}, {'GUANGZHOU': 1}, {'MUNICH': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'PARIS': 1}, {'GUANGZHOU': 1}, {'PARIS': 1}, {'ATLANTA': 1}, {'CHICAGO': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'HOUSTON': 1}, {'JAKARTA': 1}, {'JAKARTA': 1}, {'PARIS': 1}, {'LAS VEGAS': 1}, {'GUANGZHOU': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'LONDON': 1}, {'NEW YORK': 1}, {'HOUSTON': 1}, {'ROME': 1}, {'LONDON': 1}, {'MADRID': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'MIAMI': 1}, {'CHARLOTTE': 1}, {'LAS VEGAS': 1}, {'ROME': 1}, {'KUALA LUMPUR': 1}, {'PARIS': 1}, {'LONDON': 1}, {'HOUSTON': 1}, {'DALLAS/FORT WORTH': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'AMSTERDAM': 1}, {'DENVER': 1}, {'DENVER': 1}, {'DENVER': 1}, {'MADRID': 1}, {'LONDON': 1}, {'ATLANTA': 1}, {'GUANGZHOU': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'KUALA LUMPUR': 1}, {'MIAMI': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'LONDON': 1}, {'LONDON': 1}, {'ROME': 1}, {'BANGKOK': 1}, {'LONDON': 1}, {'TOKYO': 1}, {'PARIS': 1}, {'JAKARTA': 1}, {'ATLANTA': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'NEW YORK': 1}, {'MADRID': 1}, {'NEW YORK': 1}, {'AMSTERDAM': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'DENVER': 1}, {'DENVER': 1}, {'BEIJING': 1}, {'SHANGHAI': 1}, {'GUANGZHOU': 1}, {'AMSTERDAM': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'LAS VEGAS': 1}, {'NEW YORK': 1}, {'ATLANTA': 1}, {'DENVER': 1}, {'BANGKOK': 1}, {'MADRID': 1}, {'ATLANTA': 1}, {'DALLAS/FORT WORTH': 1}, {'BANGKOK': 1}, {'BEIJING': 1}, {'NEW YORK': 1}, {'NEW YORK': 1}, {'KUALA LUMPUR': 1}, {'DALLAS/FORT WORTH': 1}, {'AMSTERDAM': 1}, {'CHICAGO': 1}, {'TOKYO': 1}, {'LONDON': 1}, {'MIAMI': 1}, {'LONDON': 1}, {'JAKARTA': 1}, {'TOKYO': 1}, {'HOUSTON': 1}, {'AMSTERDAM': 1}, {'DENVER': 1}, {'AMSTERDAM': 1}, {'SHANGHAI': 1}, {'MUNICH': 1}, {'ATLANTA': 1}, {'LONDON': 1}, {'TOKYO': 1}, {'SHANGHAI': 1}, {'GUANGZHOU': 1}, {'PARIS': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'NEW YORK': 1}, {'ROME': 1}, {'BANGKOK': 1}, {'LAS VEGAS': 1}, {'MADRID': 1}, {'KUALA LUMPUR': 1}, {'ATLANTA': 1}, {'CHARLOTTE': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'MIAMI': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'GUANGZHOU': 1}, {'MADRID': 1}, {'DALLAS/FORT WORTH': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'TOKYO': 1}, {'HOUSTON': 1}, {'LONDON': 1}, {'BEIJING': 1}, {'LONDON': 1}, {'TOKYO': 1}, {'KUALA LUMPUR': 1}, {'JAKARTA': 1}, {'BEIJING': 1}, {'CHICAGO': 1}, {'LAS VEGAS': 1}, {'SHANGHAI': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'NEW YORK': 1}, {'HOUSTON': 1}, {'CHARLOTTE': 1}, {'LAS VEGAS': 1}, {'ROME': 1}, {'CHICAGO': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'LAS VEGAS': 1}, {'BEIJING': 1}, {'BANGKOK': 1}, {'HOUSTON': 1}, {'JAKARTA': 1}, {'ROME': 1}, {'MUNICH': 1}, {'KUALA LUMPUR': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'DALLAS/FORT WORTH': 1}, {'MUNICH': 1}, {'DENVER': 1}, {'CHARLOTTE': 1}, {'GUANGZHOU': 1}, {'DENVER': 1}, {'TOKYO': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'PARIS': 1}, {'AMSTERDAM': 1}, {'AMSTERDAM': 1}, {'CHARLOTTE': 1}, {'BANGKOK': 1}, {'JAKARTA': 1}, {'ATLANTA': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'CHARLOTTE': 1}, {'TOKYO': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'DENVER': 1}, {'CHICAGO': 1}, {'BANGKOK': 1}, {'ATLANTA': 1}, {'PARIS': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'NEW YORK': 1}, {'ATLANTA': 1}, {'MUNICH': 1}, {'LAS VEGAS': 1}, {'JAKARTA': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'LONDON': 1}, {'GUANGZHOU': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'MADRID': 1}, {'CHICAGO': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'SHANGHAI': 1}, {'AMSTERDAM': 1}, {'LAS VEGAS': 1}, {'HOUSTON': 1}, {'BEIJING': 1}, {'HOUSTON': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'DENVER': 1}, {'DENVER': 1}, {'CHICAGO': 1}, {'MIAMI': 1}, {'CHICAGO': 1}, {'LAS VEGAS': 1}, {'AMSTERDAM': 1}, {'KUALA LUMPUR': 1}, {'ROME': 1}, {'AMSTERDAM': 1}, {'HOUSTON': 1}, {'GUANGZHOU': 1}, {'JAKARTA': 1}, {'GUANGZHOU': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'LONDON': 1}, {'NEW YORK': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'DALLAS/FORT WORTH': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'MADRID': 1}, {'KUALA LUMPUR': 1}, {'HOUSTON': 1}, {'BANGKOK': 1}, {'GUANGZHOU': 1}, {'MUNICH': 1}, {'JAKARTA': 1}, {'CHARLOTTE': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'CHARLOTTE': 1}, {'BEIJING': 1}, {'DENVER': 1}, {'KUALA LUMPUR': 1}, {'PARIS': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'KUALA LUMPUR': 1}, {'BANGKOK': 1}, {'ATLANTA': 1}, {'PARIS': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'PARIS': 1}, {'MUNICH': 1}, {'NEW YORK': 1}, {'NEW YORK': 1}, {'TOKYO': 1}, {'CHICAGO': 1}, {'CHICAGO': 1}, {'JAKARTA': 1}, {'MIAMI': 1}, {'LAS VEGAS': 1}, {'CHARLOTTE': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'CHICAGO': 1}, {'ROME': 1}, {'HOUSTON': 1}, {'KUALA LUMPUR': 1}, {'MIAMI': 1}, {'HOUSTON': 1}, {'MIAMI': 1}, {'GUANGZHOU': 1}, {'NEW YORK': 1}, {'TOKYO': 1}, {'GUANGZHOU': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'MUNICH': 1}, {'DENVER': 1}, {'MUNICH': 1}, {'CHARLOTTE': 1}, {'NEW YORK': 1}, {'JAKARTA': 1}, {'AMSTERDAM': 1}, {'GUANGZHOU': 1}, {'NEW YORK': 1}, {'ROME': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'HOUSTON': 1}, {'CHARLOTTE': 1}, {'SHANGHAI': 1}, {'CHICAGO': 1}, {'CHARLOTTE': 1}, {'LONDON': 1}, {'HOUSTON': 1}, {'LONDON': 1}, {'LAS VEGAS': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'SHANGHAI': 1}, {'GUANGZHOU': 1}, {'BANGKOK': 1}, {'DENVER': 1}, {'BEIJING': 1}, {'LAS VEGAS': 1}, {'BANGKOK': 1}, {'GUANGZHOU': 1}, {'GUANGZHOU': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'GUANGZHOU': 1}, {'BEIJING': 1}, {'BEIJING': 1}, {'AMSTERDAM': 1}, {'JAKARTA': 1}, {'KUALA LUMPUR': 1}, {'CHARLOTTE': 1}, {'TOKYO': 1}, {'KUALA LUMPUR': 1}, {'GUANGZHOU': 1}, {'DENVER': 1}, {'BEIJING': 1}, {'DALLAS/FORT WORTH': 1}, {'PARIS': 1}, {'CHARLOTTE': 1}, {'SHANGHAI': 1}, {'CHARLOTTE': 1}, {'KUALA LUMPUR': 1}, {'MUNICH': 1}, {'PARIS': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'LAS VEGAS': 1}, {'BEIJING': 1}, {'ROME': 1}, {'GUANGZHOU': 1}, {'MADRID': 1}, {'AMSTERDAM': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'LAS VEGAS': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'CHICAGO': 1}, {'ATLANTA': 1}, {'DALLAS/FORT WORTH': 1}, {'HOUSTON': 1}, {'TOKYO': 1}, {'BANGKOK': 1}, {'DENVER': 1}, {'DENVER': 1}, {'PARIS': 1}, {'DALLAS/FORT WORTH': 1}, {'DENVER': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'HOUSTON': 1}, {'DENVER': 1}, {'DALLAS/FORT WORTH': 1}, {'GUANGZHOU': 1}, {'MADRID': 1}, {'BANGKOK': 1}, {'MADRID': 1}, {'BANGKOK': 1}, {'PARIS': 1}, {'MUNICH': 1}, {'SHANGHAI': 1}, {'LONDON': 1}, {'KUALA LUMPUR': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'NEW YORK': 1}, {'CHARLOTTE': 1}]
+#[{'AMSTERDAM': 15}, {'ATLANTA': 36}, {'BANGKOK': 17}, {'BEIJING': 13}, {'CHARLOTTE': 21}, {'CHICAGO': 33}, {'DALLAS/FORT WORTH': 11}, {'DENVER': 46}, {'GUANGZHOU': 37}, {'HOUSTON': 37}, {'JAKARTA': 27}, {'KUALA LUMPUR': 33}, {'LAS VEGAS': 17}, {'LONDON': 25}, {'MADRID': 13}, {'MIAMI': 11}, {'MUNICH': 14}, {'NEW YORK': 25}, {'PARIS': 21}, {'ROME': 15}, {'SHANGHAI': 20}]
+
 
 #_________________
 ###Task 2: Determine the passenger having had the highest number of flights.
+###Task 2: Determine the passenger having had the highest number of flights.
 
-passengerlist = []
+targetlist = []
 dictionarylist2 = []
 #Output: <Passenger code, x> where x is count, then work out max value
 
-#Map Output: <Passenger code,1> 
-def map():
+def map2(inputfile):
   #Map Segment
-  passdata = read_input(passenger1)
-  for words in passdata:
+  inputdata = read_input(inputfile)
+  for words in inputdata:
     dictkey2= {word: 1 for word in words}
     dictionarylist2.append(dict(dictkey2))
   
 #Reduce segment
-#Reduce Output: <Passenger code,x> 
 def reducer2():
   #sorter segment, sorts dictionaries alphanumerically pre reduction
   dictionary2= sorted(dictionarylist2, key= lambda d : list(d.keys()))
@@ -129,32 +193,23 @@ def reducer2():
       if key ==current_passenger:
         current_count= current_count+value
       else:
-        passengerkey= {current_passenger: current_count}
-        passengerlist.append(dict(passengerkey))
+        targetkey= {current_passenger: current_count}
+        targetlist.append(dict(targetkey))
         current_passenger = key
         current_count = value
 
-def main():
+def main(inputfile):
   #map + reduce segments
-  map2()
+  map2(inputfile)
   reducer2()
-  #mostflightpassenger= sorted(passengerlist, key= lambda value: int(value)) )
-  mostflightpassenger = max(passengerlist, key=lambda d:list(d.values()))
-  print(mostflightpassenger)
+  #mosttarget= sorted(targetlist, key= lambda value: int(value)) )
+  mosttarget = max(targetlist, key=lambda d:list(d.values()))
+  print(mosttarget)
 
 
 if __name__ == "__main__":
-  main()
-#print(dictionary2)
-print(passengerlist)
-print(mostflightpassenger)
+  main(passenger1)
 
-
-
-
-# output:[{'BWI0520BG6': 23}, {'CDC0302NN5': 12}, {'CKZ3132BR4': 19}, {'CXN7304ER2': 17}, {'CYJ0225CH1': 11}, {'DAZ3029XA0': 23}, {'EDV2089LK5': 13}, {'EZC9678QI6': 21}, {'HCA3158QA6': 21}, {'HGO4350KK1': 18}, {'IEG9308EA5': 10}, {'JBE2302VO4': 16}, {'JJM4724RF7': 21}, {'KKP5277HZ7': 11}, {'LLZ3798PE3': 16}, {'MXU9187YC7': 14}, {'ONL0812DH1': 12}, {'PAJ3974RK1': 10}, {'PIT2755XC1': 8}, {'POP2875LH3': 19}, {'PUD8209OG3': 23}, {'SJD8775RZ4': 16}, {'SPR4484HA6': 23}, {'UES9151GS5': 25}, {'UMH6360YP0': 1}, {'VZY2993ME1': 16}, {'WBE6935NU3': 19}, {'WTC9125IE5': 14}, {'WYU2010YH8': 19}, {'XFG5747ZT9': 13}]
-# {'UES9151GS5': 25}
-
-
+print(targetlist)
 
 
