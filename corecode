@@ -2,7 +2,6 @@
 import numpy as np
 import pandas as pd
 import requests
-from sklearn.model_selection import KFold
 import datetime
 
 #threading modules
@@ -33,13 +32,18 @@ print(latlong)
 
 #__
 
+###Restrict Airport data set to airport codes and index
 airport1=airport.loc[:,'From_Airport_Code']
+
+###Restrict Latlong data set to airport names and corresponding airport codes
 latlong1=latlong[['Airport','From_Airport_Code']].set_index('Airport')
 
+###Restrict Airport data set to passenger id and index
 passenger1=airport.loc[:,'Passenger_ID']
 #
 #print(airport1)
 #print(latlong1)
+#print(passenger1)
 
 #__
 #Task 1: Determine the total number of flights from each airport
@@ -48,106 +52,131 @@ passenger1=airport.loc[:,'Passenger_ID']
 targetlist = []
 dictionarylist = []
 
-#Function for creating a list of indices for the partitioned sets
-def divider(entryfile,split): 
-  filevalue, splitvalue = divmod(entryfile.size, split)
-  return (entryfile[i*filevalue+min(i, splitvalue):(i+1)*filevalue+min(i+1, splitvalue)] for i in range(split))
+#common variables
+#CountDB: database containing variable and values of interest
+#LabelDB: the database containing the new labels you wish to overwrite countdb with.
+#MergeVariable: the primary variable which you are replacing with your labeldb
+#ThreadNo: Number of Threads
+#Replace_Dictionary: Dictionary containing values from LabelDB to replace values in Count DB
+
+#Function:creates a list of indices to partition the CountDB into number of ThreadNo partitions 
+def divider(CountDB,ThreadNo): 
+  filevalue, ThreadNoValue = divmod(CountDB.size, ThreadNo) 
+  #Calculate what the modulo is based on the ThreadNo of the file
+  return (CountDB[i*filevalue+min(i, ThreadNoValue):(i+1)*filevalue+min(i+1, ThreadNoValue)] for i in range(ThreadNo))
 
 #Function for partitioning the sets in preperation for threading
-def partitioner1(entryfile,split,i):
-  if entryfile.size % split == 0:
-      divider(entryfile,split)
-      listing= list(divider(airport1,split))
-      
+def partitioner1(CountDB,ThreadNo,i):
+  #tests if CountDB can be cleanly partitioned by split of ThreadNo.
+  if CountDB.size % ThreadNo == 0:
+      divider(CountDB,ThreadNo)
+      listing= list(divider(CountDB,ThreadNo))
       index=listing[i]
-      
+      #calls from the list and returns the index of the ith partition
       return index
   else:
-    print(str(entryfile.size) + ' cannot be subdivided by '+ str(split))
+    #returns error if CountDB cannot be cleanly partitioned by split of ThreadNo.
+    print(str(CountDB.size) + ' cannot be subdivided by '+ str(ThreadNo))
     raise ValueError
 
-
-def read_input(entryfile):
-  for line in entryfile:
+#CountDB: file containing index and value which is being counted
+def read_input(CountDB):
+  for line in CountDB:
   # Split the line into words
     yield line.split()
 
-def inputmerge(mergefile,mergecode):
+def inputmerge(LabelDB,MergeVariable):
   #Input Segment
-  file_dict = mergefile.to_dict(orient="dict")[mergecode]
-  inv_file_dict = {value: key for key, value in file_dict.items()}
+  label_dictionary = LabelDB.to_dict(orient="dict")[MergeVariable] 
+  #converts LabelDB into dictionary based on the code you're trying to merge
+  inv_label_dictionary = {value: key for key, value in label_dictionary.items()}
+  #Inverts dictionary and returns it
   #Output: <Airport, FAA Code> -> <FAA Code, Airport>
-  return inv_file_dict
+  return inv_label_dictionary
 
-def threadsection1(mergefile,countfile,inversedict,split):
+
+#Output: <Passenger code, x> where x is count, then work out max value
+def mapper1(LabelDB,CountDB,Replace_Dictionary):
+  #Map Segment
+  #Output: <FAA Code, x> -> <Airport, x>  where x is count
+  
+  #read in data
+  data = read_input(CountDB)
+  for words in data:
+    for word in words:
+      #check to ensure LabelDB is present, otherwise ignore
+      try:
+        targetcode= Replace_Dictionary[word] 
+      except NameError:#send NameError if there isn't a match
+        targetcode= word 
+        pass 
+      dictkey= {targetcode: 1}#count value of interest and store as dictionary
+      dictionarylist.append(dict(dictkey)) #store dictionaries in list
+
+def threadsection1(LabelDB,CountDB,inverse_dictionary,ThreadNo):
+  #Begin Timer
   start_time = perf_counter()
+  #Create thread list
   threads=[]
-  for i in range(split):
+  #cycle through number of threads
+  for i in range(ThreadNo):
     print("Activate thread "+ str(i+1))
-    parting=partitioner1(countfile,split,i )
-    thread = Thread(target=map1(mergefile,parting,inversedict))
-    # start the threads
+    #Call partition for the tread
+    parting=partitioner1(CountDB,ThreadNo,i)
+    # start the mapper within the thread
+    thread = Thread(target=mapper1(LabelDB,parting,inverse_dictionary))
     thread.start()
+    #add thread to thread list
     threads.append(thread)
-    # wait for the threads to complete
+
+  #cycle through active threads and instruct them wait until the threads terminate.
   for i in range(len(threads)):
     thread=threads[i]
     thread.join()
     print("End thread "+ str(i+1))
+  #Stop timer
   end_time = perf_counter()
+  #Calculate difference in start/stop time
   print(f'It took {end_time- start_time: 0.2f} second(s) to complete.')
 
 
-
-def map1(mergefile,countfile,passing):
-  #Map Segment
-  #Output: <FAA Code, x> -> <Airport, x>  where x is count
-  data = read_input(countfile)
-  for words in data:
-    for word in words:
-      #check to ensure mergefile is present, otherwise ignore
-      try:
-        targetcode= passing[word] 
-      except NameError:
-        targetcode= word 
-        pass 
-        
-      dictkey= {targetcode: 1}
-      dictionarylist.append(dict(dictkey))
 
 #Reduce segment
 def reducer1():
   #sorter segment, sorts dictionaries alphanumerically pre reduction
   dictionary= sorted(dictionarylist, key= lambda d : list(d.keys()))
 
-  for key, value in dictionary[0].items():
+  for key, value in dictionary[0].items():  #Starts count on first value and 0
     current_target,current_count = [str(key),0] 
 
   for diction in dictionary:
     for key, value in diction.items():
+
       if key ==current_target:
-        current_count= current_count+value
+        current_count= current_count+value #If value is same as previous value, increment value+1
+
       else:
-        targetkey= {current_target: current_count}
-        targetlist.append(dict(targetkey))
+        targetkey= {current_target: current_count} 
+        targetlist.append(dict(targetkey)) #store previous count and value in list of dictionary
         current_target = key
-        current_count = value
+        current_count = value # set value to key and set count to 1
 
 
-def main(mergefile,countfile,mergecode,split):
+def main(LabelDB,CountDB,MergeVariable,ThreadNo):
   #map + reduce segments
   try:
-    inversedict=inputmerge(mergefile,mergecode)
-  except NameError:
+    inverse_dictionary=inputmerge(LabelDB,MergeVariable)
+  except NameError: #pass name error if merge isn't possible
     pass
-  threadsection1(mergefile,countfile,inversedict,split)
+  #map ThreadNo up into threads
+  threadsection1(LabelDB,CountDB,inverse_dictionary,ThreadNo)
+  
   reducer1()
 
 if __name__ == "__main__":
   main(latlong1,airport1,'From_Airport_Code',4)
-print(dictionarylist)
 
-#print(dictionary)
+
 print(targetlist)
 
 
@@ -161,24 +190,33 @@ print(targetlist)
 #End thread 3
 #End thread 4
 #It took  0.01 second(s) to complete.
-#[{'DENVER': 1}, {'NEW YORK': 1}, {'CHICAGO': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'KUALA LUMPUR': 1}, {'MADRID': 1}, {'DENVER': 1}, {'LONDON': 1}, {'NEW YORK': 1}, {'JAKARTA': 1}, {'MUNICH': 1}, {'AMSTERDAM': 1}, {'DALLAS/FORT WORTH': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'NEW YORK': 1}, {'MUNICH': 1}, {'KUALA LUMPUR': 1}, {'MIAMI': 1}, {'PARIS': 1}, {'GUANGZHOU': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'MUNICH': 1}, {'GUANGZHOU': 1}, {'CHICAGO': 1}, {'MIAMI': 1}, {'LAS VEGAS': 1}, {'PARIS': 1}, {'CHICAGO': 1}, {'CHARLOTTE': 1}, {'JAKARTA': 1}, {'LAS VEGAS': 1}, {'ATLANTA': 1}, {'DENVER': 1}, {'PARIS': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'KUALA LUMPUR': 1}, {'CHARLOTTE': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'DENVER': 1}, {'JAKARTA': 1}, {'LONDON': 1}, {'SHANGHAI': 1}, {'ROME': 1}, {'KUALA LUMPUR': 1}, {'HOUSTON': 1}, {'JAKARTA': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'NEW YORK': 1}, {'SHANGHAI': 1}, {'DENVER': 1}, {'MADRID': 1}, {'PARIS': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'BANGKOK': 1}, {'BEIJING': 1}, {'DENVER': 1}, {'BANGKOK': 1}, {'TOKYO': 1}, {'JAKARTA': 1}, {'PARIS': 1}, {'BANGKOK': 1}, {'PARIS': 1}, {'GUANGZHOU': 1}, {'SHANGHAI': 1}, {'CHARLOTTE': 1}, {'CHICAGO': 1}, {'MIAMI': 1}, {'CHARLOTTE': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'JAKARTA': 1}, {'NEW YORK': 1}, {'CHARLOTTE': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'HOUSTON': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'JAKARTA': 1}, {'GUANGZHOU': 1}, {'MUNICH': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'PARIS': 1}, {'GUANGZHOU': 1}, {'PARIS': 1}, {'ATLANTA': 1}, {'CHICAGO': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'HOUSTON': 1}, {'JAKARTA': 1}, {'JAKARTA': 1}, {'PARIS': 1}, {'LAS VEGAS': 1}, {'GUANGZHOU': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'LONDON': 1}, {'NEW YORK': 1}, {'HOUSTON': 1}, {'ROME': 1}, {'LONDON': 1}, {'MADRID': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'MIAMI': 1}, {'CHARLOTTE': 1}, {'LAS VEGAS': 1}, {'ROME': 1}, {'KUALA LUMPUR': 1}, {'PARIS': 1}, {'LONDON': 1}, {'HOUSTON': 1}, {'DALLAS/FORT WORTH': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'AMSTERDAM': 1}, {'DENVER': 1}, {'DENVER': 1}, {'DENVER': 1}, {'MADRID': 1}, {'LONDON': 1}, {'ATLANTA': 1}, {'GUANGZHOU': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'KUALA LUMPUR': 1}, {'MIAMI': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'LONDON': 1}, {'LONDON': 1}, {'ROME': 1}, {'BANGKOK': 1}, {'LONDON': 1}, {'TOKYO': 1}, {'PARIS': 1}, {'JAKARTA': 1}, {'ATLANTA': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'NEW YORK': 1}, {'MADRID': 1}, {'NEW YORK': 1}, {'AMSTERDAM': 1}, {'CHICAGO': 1}, {'DENVER': 1}, {'DENVER': 1}, {'DENVER': 1}, {'BEIJING': 1}, {'SHANGHAI': 1}, {'GUANGZHOU': 1}, {'AMSTERDAM': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'LAS VEGAS': 1}, {'NEW YORK': 1}, {'ATLANTA': 1}, {'DENVER': 1}, {'BANGKOK': 1}, {'MADRID': 1}, {'ATLANTA': 1}, {'DALLAS/FORT WORTH': 1}, {'BANGKOK': 1}, {'BEIJING': 1}, {'NEW YORK': 1}, {'NEW YORK': 1}, {'KUALA LUMPUR': 1}, {'DALLAS/FORT WORTH': 1}, {'AMSTERDAM': 1}, {'CHICAGO': 1}, {'TOKYO': 1}, {'LONDON': 1}, {'MIAMI': 1}, {'LONDON': 1}, {'JAKARTA': 1}, {'TOKYO': 1}, {'HOUSTON': 1}, {'AMSTERDAM': 1}, {'DENVER': 1}, {'AMSTERDAM': 1}, {'SHANGHAI': 1}, {'MUNICH': 1}, {'ATLANTA': 1}, {'LONDON': 1}, {'TOKYO': 1}, {'SHANGHAI': 1}, {'GUANGZHOU': 1}, {'PARIS': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'NEW YORK': 1}, {'ROME': 1}, {'BANGKOK': 1}, {'LAS VEGAS': 1}, {'MADRID': 1}, {'KUALA LUMPUR': 1}, {'ATLANTA': 1}, {'CHARLOTTE': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'MIAMI': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'GUANGZHOU': 1}, {'MADRID': 1}, {'DALLAS/FORT WORTH': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'TOKYO': 1}, {'HOUSTON': 1}, {'LONDON': 1}, {'BEIJING': 1}, {'LONDON': 1}, {'TOKYO': 1}, {'KUALA LUMPUR': 1}, {'JAKARTA': 1}, {'BEIJING': 1}, {'CHICAGO': 1}, {'LAS VEGAS': 1}, {'SHANGHAI': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'NEW YORK': 1}, {'HOUSTON': 1}, {'CHARLOTTE': 1}, {'LAS VEGAS': 1}, {'ROME': 1}, {'CHICAGO': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'LAS VEGAS': 1}, {'BEIJING': 1}, {'BANGKOK': 1}, {'HOUSTON': 1}, {'JAKARTA': 1}, {'ROME': 1}, {'MUNICH': 1}, {'KUALA LUMPUR': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'DALLAS/FORT WORTH': 1}, {'MUNICH': 1}, {'DENVER': 1}, {'CHARLOTTE': 1}, {'GUANGZHOU': 1}, {'DENVER': 1}, {'TOKYO': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'PARIS': 1}, {'AMSTERDAM': 1}, {'AMSTERDAM': 1}, {'CHARLOTTE': 1}, {'BANGKOK': 1}, {'JAKARTA': 1}, {'ATLANTA': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'CHARLOTTE': 1}, {'TOKYO': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'DENVER': 1}, {'CHICAGO': 1}, {'BANGKOK': 1}, {'ATLANTA': 1}, {'PARIS': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'NEW YORK': 1}, {'ATLANTA': 1}, {'MUNICH': 1}, {'LAS VEGAS': 1}, {'JAKARTA': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'LONDON': 1}, {'GUANGZHOU': 1}, {'ATLANTA': 1}, {'JAKARTA': 1}, {'MADRID': 1}, {'CHICAGO': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'SHANGHAI': 1}, {'AMSTERDAM': 1}, {'LAS VEGAS': 1}, {'HOUSTON': 1}, {'BEIJING': 1}, {'HOUSTON': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'DENVER': 1}, {'DENVER': 1}, {'CHICAGO': 1}, {'MIAMI': 1}, {'CHICAGO': 1}, {'LAS VEGAS': 1}, {'AMSTERDAM': 1}, {'KUALA LUMPUR': 1}, {'ROME': 1}, {'AMSTERDAM': 1}, {'HOUSTON': 1}, {'GUANGZHOU': 1}, {'JAKARTA': 1}, {'GUANGZHOU': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'LONDON': 1}, {'NEW YORK': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'KUALA LUMPUR': 1}, {'DENVER': 1}, {'DALLAS/FORT WORTH': 1}, {'DENVER': 1}, {'HOUSTON': 1}, {'MADRID': 1}, {'KUALA LUMPUR': 1}, {'HOUSTON': 1}, {'BANGKOK': 1}, {'GUANGZHOU': 1}, {'MUNICH': 1}, {'JAKARTA': 1}, {'CHARLOTTE': 1}, {'ATLANTA': 1}, {'ATLANTA': 1}, {'CHARLOTTE': 1}, {'BEIJING': 1}, {'DENVER': 1}, {'KUALA LUMPUR': 1}, {'PARIS': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'KUALA LUMPUR': 1}, {'BANGKOK': 1}, {'ATLANTA': 1}, {'PARIS': 1}, {'SHANGHAI': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'PARIS': 1}, {'MUNICH': 1}, {'NEW YORK': 1}, {'NEW YORK': 1}, {'TOKYO': 1}, {'CHICAGO': 1}, {'CHICAGO': 1}, {'JAKARTA': 1}, {'MIAMI': 1}, {'LAS VEGAS': 1}, {'CHARLOTTE': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'CHICAGO': 1}, {'ROME': 1}, {'HOUSTON': 1}, {'KUALA LUMPUR': 1}, {'MIAMI': 1}, {'HOUSTON': 1}, {'MIAMI': 1}, {'GUANGZHOU': 1}, {'NEW YORK': 1}, {'TOKYO': 1}, {'GUANGZHOU': 1}, {'CHICAGO': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'MUNICH': 1}, {'DENVER': 1}, {'MUNICH': 1}, {'CHARLOTTE': 1}, {'NEW YORK': 1}, {'JAKARTA': 1}, {'AMSTERDAM': 1}, {'GUANGZHOU': 1}, {'NEW YORK': 1}, {'ROME': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'HOUSTON': 1}, {'CHARLOTTE': 1}, {'SHANGHAI': 1}, {'CHICAGO': 1}, {'CHARLOTTE': 1}, {'LONDON': 1}, {'HOUSTON': 1}, {'LONDON': 1}, {'LAS VEGAS': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'SHANGHAI': 1}, {'GUANGZHOU': 1}, {'BANGKOK': 1}, {'DENVER': 1}, {'BEIJING': 1}, {'LAS VEGAS': 1}, {'BANGKOK': 1}, {'GUANGZHOU': 1}, {'GUANGZHOU': 1}, {'JAKARTA': 1}, {'HOUSTON': 1}, {'GUANGZHOU': 1}, {'BEIJING': 1}, {'BEIJING': 1}, {'AMSTERDAM': 1}, {'JAKARTA': 1}, {'KUALA LUMPUR': 1}, {'CHARLOTTE': 1}, {'TOKYO': 1}, {'KUALA LUMPUR': 1}, {'GUANGZHOU': 1}, {'DENVER': 1}, {'BEIJING': 1}, {'DALLAS/FORT WORTH': 1}, {'PARIS': 1}, {'CHARLOTTE': 1}, {'SHANGHAI': 1}, {'CHARLOTTE': 1}, {'KUALA LUMPUR': 1}, {'MUNICH': 1}, {'PARIS': 1}, {'DENVER': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'LAS VEGAS': 1}, {'BEIJING': 1}, {'ROME': 1}, {'GUANGZHOU': 1}, {'MADRID': 1}, {'AMSTERDAM': 1}, {'HOUSTON': 1}, {'ATLANTA': 1}, {'LAS VEGAS': 1}, {'LONDON': 1}, {'CHICAGO': 1}, {'SHANGHAI': 1}, {'CHICAGO': 1}, {'ATLANTA': 1}, {'DALLAS/FORT WORTH': 1}, {'HOUSTON': 1}, {'TOKYO': 1}, {'BANGKOK': 1}, {'DENVER': 1}, {'DENVER': 1}, {'PARIS': 1}, {'DALLAS/FORT WORTH': 1}, {'DENVER': 1}, {'NEW YORK': 1}, {'DENVER': 1}, {'ATLANTA': 1}, {'ROME': 1}, {'GUANGZHOU': 1}, {'KUALA LUMPUR': 1}, {'HOUSTON': 1}, {'DENVER': 1}, {'DALLAS/FORT WORTH': 1}, {'GUANGZHOU': 1}, {'MADRID': 1}, {'BANGKOK': 1}, {'MADRID': 1}, {'BANGKOK': 1}, {'PARIS': 1}, {'MUNICH': 1}, {'SHANGHAI': 1}, {'LONDON': 1}, {'KUALA LUMPUR': 1}, {'GUANGZHOU': 1}, {'HOUSTON': 1}, {'NEW YORK': 1}, {'CHARLOTTE': 1}]
 #[{'AMSTERDAM': 15}, {'ATLANTA': 36}, {'BANGKOK': 17}, {'BEIJING': 13}, {'CHARLOTTE': 21}, {'CHICAGO': 33}, {'DALLAS/FORT WORTH': 11}, {'DENVER': 46}, {'GUANGZHOU': 37}, {'HOUSTON': 37}, {'JAKARTA': 27}, {'KUALA LUMPUR': 33}, {'LAS VEGAS': 17}, {'LONDON': 25}, {'MADRID': 13}, {'MIAMI': 11}, {'MUNICH': 14}, {'NEW YORK': 25}, {'PARIS': 21}, {'ROME': 15}, {'SHANGHAI': 20}]
 
 
 #_________________
 ###Task 2: Determine the passenger having had the highest number of flights.
-###Task 2: Determine the passenger having had the highest number of flights.
 
+#Initilise lists to store data
 targetlist = []
 dictionarylist2 = []
-#Output: <Passenger code, x> where x is count, then work out max value
 
-def map2(inputfile):
+#common variables
+#CountDB: database containing variable and values of interest
+
+def read_input(CountDB):
+  for line in CountDB:
+  # Split the line into words
+    yield line.split()
+
+#CountDB: file containing index and value which is being counted
+#Output: <Passenger code, x> where x is count, then work out max value
+def mapper2(CountDB):
   #Map Segment
-  inputdata = read_input(inputfile)
+  #read in data
+  inputdata = read_input(CountDB)
   for words in inputdata:
-    dictkey2= {word: 1 for word in words}
-    dictionarylist2.append(dict(dictkey2))
+    dictkey2= {word: 1 for word in words} #count value of interest and store as dictionary
+    dictionarylist2.append(dict(dictkey2)) #store dictionaries in list
   
 #Reduce segment
 def reducer2():
@@ -186,30 +224,35 @@ def reducer2():
   dictionary2= sorted(dictionarylist2, key= lambda d : list(d.keys()))
 
   #reduce segment
-  for key, value in dictionary2[0].items():
-    current_passenger,current_count = [str(key),0] 
-  for diction2 in dictionary2:
-    for key, value in diction2.items():
-      if key ==current_passenger:
-        current_count= current_count+value
-      else:
-        targetkey= {current_passenger: current_count}
-        targetlist.append(dict(targetkey))
-        current_passenger = key
-        current_count = value
+  for key, value in dictionary2[0].items(): #Starts count on first value and 0
+    current_target,current_count = [str(key),0] 
 
-def main(inputfile):
+  for diction2 in dictionary2: 
+    for key, value in diction2.items(): 
+
+      if key ==current_target: #If value is same as previous value, increment value+1
+        current_count= current_count+value
+
+      else: #Else value is not same,
+        targetkey= {current_target: current_count} 
+        targetlist.append(dict(targetkey)) #store previous count and value in list of dictionary
+        current_target = key
+        current_count = value # set value to key and set count to 1
+
+def main(CountDB):
   #map + reduce segments
-  map2(inputfile)
+  mapper2(CountDB)
   reducer2()
-  #mosttarget= sorted(targetlist, key= lambda value: int(value)) )
-  mosttarget = max(targetlist, key=lambda d:list(d.values()))
+  mosttarget = max(targetlist, key=lambda d:list(d.values())) #calculate maximum of final list of dictionaries
   print(mosttarget)
 
 
 if __name__ == "__main__":
   main(passenger1)
+  
+#print(targetlist)
 
-print(targetlist)
+# Output:
+# {'UES9151GS5': 25}
 
 
