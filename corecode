@@ -95,23 +95,26 @@ def inputmerge(LabelDB,MergeVariable):
   return inv_label_dictionary
 
 
-#Output: <Passenger code, x> where x is count, then work out max value
 def mapper1(LabelDB,CountDB,Replace_Dictionary):
-  #Map Segment
-  #Output: <FAA Code, x> -> <Airport, x>  where x is count
+  #Primary Map Segment
+  #Output: Airport Array -> [<FAA Code, 1>,]  
   
   #read in data
   data = read_input(CountDB)
   for words in data:
     for word in words:
-      #check to ensure LabelDB is present, otherwise ignore
-      try:
+
+      #Secondary Map Segment: 
+      #Output: [<FAA Code, 1>,] -> [<Airport, 1>,]  
+      try: #check to ensure LabelDB is present, otherwise ignore
         targetcode= Replace_Dictionary[word] 
       except NameError:#send NameError if there isn't a match
         targetcode= word 
+
         pass 
       dictkey= {targetcode: 1}#count value of interest and store as dictionary
-      dictionarylist.append(dict(dictkey)) #store dictionaries in list
+      dictionarylist.append(dict(dictkey)) #store dictionaries in list 
+      #(this section could be described as a combiner as well)
 
 def threadsection1(LabelDB,CountDB,inverse_dictionary,ThreadNo):
   #Begin Timer
@@ -140,12 +143,13 @@ def threadsection1(LabelDB,CountDB,inverse_dictionary,ThreadNo):
   print(f'It took {end_time- start_time: 0.2f} second(s) to complete.')
 
 
-
-#Reduce segment
 def reducer1():
-  #sorter segment, sorts dictionaries alphanumerically pre reduction
+
+  #Sorter/combiner segment, sorts dictionaries alphanumerically pre reduction
   dictionary= sorted(dictionarylist, key= lambda d : list(d.keys()))
 
+  #Reduce segment
+  #Output: [<Airport Name, 1>,] -> [<Airport Name, x>,] where x is count, then work out max value
   for key, value in dictionary[0].items():  #Starts count on first value and 0
     current_target,current_count = [str(key),0] 
 
@@ -165,10 +169,10 @@ def reducer1():
 def main(LabelDB,CountDB,MergeVariable,ThreadNo):
   #map + reduce segments
   try:
-    inverse_dictionary=inputmerge(LabelDB,MergeVariable)
+    inverse_dictionary=inputmerge(LabelDB,MergeVariable) #call the dictionary for the merge
   except NameError: #pass name error if merge isn't possible
     pass
-  #map ThreadNo up into threads
+  #Create ThreadNo threads to run mapper
   threadsection1(LabelDB,CountDB,inverse_dictionary,ThreadNo)
   
   reducer1()
@@ -194,7 +198,7 @@ print(targetlist)
 
 
 #_________________
-###Task 2: Determine the passenger having had the highest number of flights.
+#Task 2: Determine the passenger having had the highest number of flights.
 
 #Initilise lists to store data
 targetlist = []
@@ -207,25 +211,25 @@ def read_input(CountDB):
   for line in CountDB:
   # Split the line into words
     yield line.split()
-
-#CountDB: file containing index and value which is being counted
-#Output: <Passenger code, x> where x is count, then work out max value
+  
+#Map Segment
+#Output: [<Passenger code, 1>,] where x is count, then work out max value
 def mapper2(CountDB):
-  #Map Segment
   #read in data
   inputdata = read_input(CountDB)
   for words in inputdata:
     dictkey2= {word: 1 for word in words} #count value of interest and store as dictionary
     dictionarylist2.append(dict(dictkey2)) #store dictionaries in list
   
-#Reduce segment
 def reducer2():
-  #sorter segment, sorts dictionaries alphanumerically pre reduction
+
+  #Sorter segment: sorts dictionaries alphanumerically pre reduction
   dictionary2= sorted(dictionarylist2, key= lambda d : list(d.keys()))
 
-  #reduce segment
-  for key, value in dictionary2[0].items(): #Starts count on first value and 0
-    current_target,current_count = [str(key),0] 
+  #Reduce segment
+  #Output: [<Passenger code, 1>,] -> [<Passenger code, x>,] where x is count, then work out max value
+  for key, value in dictionary2[0].items():
+    current_target,current_count = [str(key),0]  #Starts count on first value and 0
 
   for diction2 in dictionary2: 
     for key, value in diction2.items(): 
@@ -240,7 +244,6 @@ def reducer2():
         current_count = value # set value to key and set count to 1
 
 def main(CountDB):
-  #map + reduce segments
   mapper2(CountDB)
   reducer2()
   mosttarget = max(targetlist, key=lambda d:list(d.values())) #calculate maximum of final list of dictionaries
@@ -249,8 +252,9 @@ def main(CountDB):
 
 if __name__ == "__main__":
   main(passenger1)
-  
+
 #print(targetlist)
+
 
 # Output:
 # {'UES9151GS5': 25}
